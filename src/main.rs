@@ -4,7 +4,7 @@ use flate2::read::ZlibDecoder;
 use std::{
     ffi::CStr,
     fs,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Read},
 };
 
 #[derive(Parser, Debug)]
@@ -71,22 +71,19 @@ fn main() -> anyhow::Result<()> {
                 _ => anyhow::bail!("We do not know how to print a {kind}"),
             };
             let size = size
-                .parse::<usize>()
+                .parse::<u64>()
                 .context(".git/objects file header has invalid size: {size}")?;
-            buf.clear();
-            buf.resize(size, 0);
-            z.read_exact(&mut buf[..])
-                .context(".git/objects file contents did not match expection")?;
-            let n = z.read(&mut [0]).context("validate EOF")?;
-            anyhow::ensure!(n == 0, ".git/objects file had {n} trailing bytes");
 
-            let mut stdout = std::io::stdout().lock();
-
+            let mut z = z.take(size);
             match kind {
                 Kind::Blob => {
-                    stdout
-                        .write_all(&buf)
-                        .context("write object contents to stdout")?;
+                    let mut stdout = std::io::stdout().lock();
+                    let n = std::io::copy(&mut z, &mut stdout)
+                        .context("Write .git/objects to stdout")?;
+                    anyhow::ensure!(
+                        n == size.try_into().unwrap(),
+                        ".git/objects file {n} was not the expected size {size}"
+                    );
                 }
             }
         }
